@@ -1,0 +1,91 @@
+#!/bin/bash
+set -e
+DOWNLOAD_URL="https://atxfiles.netgate.com/mirror/downloads"
+PFSENSE_VERSION="pfSense-CE-2.7.2-RELEASE-amd64"
+
+fetch_iso() {
+    local dl_url="$1"
+    local ver="$2"
+    local src_digest="${dl_url}/${ver}.iso.gz.sha256"
+    local dest_digest="${HOME}/Downloads/${ver}.iso.gz.sha256"
+    local src_iso="${dl_url}/${ver}.iso.gz"
+    local dest_iso="${HOME}/Downloads/${ver}.iso"
+
+    if [ -f "${dest_iso}" ]; then
+        echo "File '${dest_iso}' already exists. "
+        read -r -p "Force re-download? [y/N] " response
+        case "$response" in
+            [yY][eE][sS]|[yY])
+                rm "${dest_iso}"
+                rm "${dest_iso}.gz"
+                rm "${dest_digest}"
+                ;;
+            *)
+                :
+                ;;
+        esac
+    fi
+
+    if [ ! -f "${dest_digest}" ]; then
+        echo "Downloading digest from ${src_digest}..."
+        curl "${src_digest}" -o "${dest_digest}"
+    fi
+    if [ ! -f "${dest_digest}" ]; then
+        echo "Failed to download digest." >&2
+        return 1
+    fi
+
+    if [ ! -f "${dest_iso}.gz" ]; then
+        echo "Downloading iso from ${src_iso}..."
+        curl "${src_iso}" -o "${dest_iso}.gz"
+    fi
+
+    if [ ! -f "${dest_iso}.gz" ]; then
+        echo "File not found: '${dest_iso}.gz'" >&2
+        return 1
+    fi
+
+    if ! (
+        cd "$(dirname "${dest_digest}")" && sha256sum --quiet --check "$(basename "${dest_digest}")"
+    ); then
+        echo "Checksum failed validation." >&2
+        echo "Digest File Contents:"
+        cat "${dest_digest}"
+        echo ""
+        echo "sha256sum for .iso file:"
+        sha256sum "${dest_iso}.gz"
+
+        read -r -p "Do you want to remove file ${dest_iso}.gz? [y/N] " response
+        case "$response" in
+        [yY][eE][sS] | [yY])
+            rm -f "${dest_iso}.gz"
+            ;;
+        *)
+            :
+            ;;
+        esac
+
+        return 1
+    fi
+
+    if [ ! -f "${dest_iso}" ]; then
+        echo "Extracting '${dest_iso}.gz' ..."
+        (
+            cd "$(dirname "${dest_iso}.gz")" && gunzip -c "$(basename "${dest_iso}.gz")" >"$(basename "${dest_iso}")"
+        )
+    fi
+
+    if [ ! -f "${dest_iso}" ]; then
+        echo "File not found: '${dest_iso}'" >&2
+        return 1
+    else
+        echo "Downloaded: ${dest_iso}"
+    fi
+    return 0
+}
+
+if fetch_iso "${DOWNLOAD_URL}" "${PFSENSE_VERSION}"; then
+    echo "Finished."
+else
+    echo "Failed to fetch .iso for ${PFSENSE_VERSION} from ${DOWNLOAD_URL}"
+fi
